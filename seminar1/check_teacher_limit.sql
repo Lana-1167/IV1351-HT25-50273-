@@ -2,25 +2,44 @@
 --  Project: University Course & Teaching Allocation System
 --  File: check_teacher_limit.sql
 --  DBMS: PostgreSQL
---  Author: Lana Ryzhova
---  Date: 2025-11-15
 --  Description:
 --     Enforce "no more than 4 courses per teacher per period" 
 -- ==========================================================
 
 -- ==========================================================
-CREATE FUNCTION check_teacher_limit() RETURNS TRIGGER AS $$
+-- Checks function
+
+CREATE OR REPLACE FUNCTION check_teacher_limit()
+RETURNS TRIGGER AS $$
+DECLARE
+    cnt INT;
+    inst_year INT;
+    inst_period TEXT;
 BEGIN
-  IF (SELECT COUNT(DISTINCT ci.instance_id)
-      FROM Allocation a
-      JOIN CourseInstance ci ON a.instance_id = ci.instance_id
-      WHERE a.emp_id = NEW.emp_id AND ci.period = (SELECT period FROM CourseInstance WHERE instance_id = NEW.instance_id)) >= 4 THEN
-      RAISE EXCEPTION 'Teacher cannot be allocated to more than 4 course instances per period';
-  END IF;
-  RETURN NEW;
+
+-- we get the year and period for the instance_id of the inserted record
+    SELECT year, period INTO inst_year, inst_period
+    FROM CourseInstance WHERE instance_id = NEW.instance_id;
+
+    SELECT COUNT(DISTINCT a.instance_id) INTO cnt
+    FROM Allocation a
+    JOIN CourseInstance ci ON a.instance_id = ci.instance_id
+    WHERE a.emp_id = NEW.emp_id
+      AND ci.year = inst_year
+      AND ci.period = inst_period;
+
+
+-- if there are already 4 or more => refusal
+    IF cnt >= 4 THEN
+        RAISE EXCEPTION 'Teacher % already allocated to % distinct instances in % %', NEW.emp_id, cnt, inst_period, inst_year;
+    END IF;
+
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-CREATE TRIGGER trg_teacher_limit
+
+-- Trigger, fires before insertion
+CREATE TRIGGER trg_check_teacher_limit
 BEFORE INSERT ON Allocation
 FOR EACH ROW EXECUTE FUNCTION check_teacher_limit();
 

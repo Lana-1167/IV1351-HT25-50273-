@@ -114,5 +114,8 @@ CREATE TABLE Allocation (
 	ALTER TABLE PlannedActivity
 	ADD CONSTRAINT uq_activity UNIQUE(instance_id, activity_id);
 -- ==========================================================
+	ALTER TABLE Allocation
+	ADD CONSTRAINT uq_alloc UNIQUE (emp_id, instance_id, activity_id);
+-- ==========================================================
 -- End
 -- ==========================================================

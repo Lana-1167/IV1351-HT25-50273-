@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "MainCLI",
+            "request": "launch",
+            "mainClass": "MainCLI",
+            "projectName": "course-planning-system2025_ab398dff"
+        },
+        {
+            "type": "java",
+            "name": "Launch RentalSystem",
+            "request": "launch",
+            "mainClass": "RentalSystem",
+            "classpath": [
+                "lib/postgresql-42.7.4.jar",
+                "bin"
+            ],
+            "projectName": "MyProject_2"
+        }
+    ]
+}

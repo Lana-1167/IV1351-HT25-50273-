@@ -1,46 +1,84 @@
 package dao;
 
 import model.TeachingCost;
-import java.sql.*;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 
 public class TeachingCostDAO {
 
-    // average salary per hour (SEK/hour) per your choice
+    // Average salary per hour (used ONLY for planned cost)
     private static final double AVG_SALARY_PER_HOUR = 350.0;
 
-    // returns TeachingCost for instance
     public TeachingCost getCostForInstance(int instanceId) {
-        String sqlPlanned = "SELECT COALESCE(SUM(pa.planned_hours * at.factor),0) AS planned FROM PlannedActivity pa JOIN ActivityType at ON pa.activity_id = at.activity_id WHERE pa.instance_id = ?";
-        String sqlActual = "SELECT COALESCE(SUM(a.allocated_hours * at.factor),0) AS actual FROM Allocation a JOIN ActivityType at ON a.activity_id = at.activity_id WHERE a.instance_id = ?";
+
+        // ===== PLANNED HOURS =====
+        String sqlPlanned = "SELECT planned_sum " +
+                "     + (num_students * 0.05) " +
+                "     + CEIL(num_students / 30.0) * 5 AS planned_hours " +
+                "FROM ( " +
+                "   SELECT ci.num_students, " +
+                "          COALESCE(SUM(pa.planned_hours * at.factor), 0) AS planned_sum " +
+                "   FROM CourseInstance ci " +
+                "   LEFT JOIN PlannedActivity pa ON ci.instance_id = pa.instance_id " +
+                "   LEFT JOIN ActivityType at ON pa.activity_id = at.activity_id " +
+                "   WHERE ci.instance_id = ? " +
+                "   GROUP BY ci.num_students " +
+                ") t";
+
+        // ===== ACTUAL HOURS =====
+        String sqlActual = "SELECT COALESCE(SUM(a.allocated_hours * at.factor), 0) AS actual_hours " +
+                "FROM Allocation a " +
+                "JOIN ActivityType at ON a.activity_id = at.activity_id " +
+                "WHERE a.instance_id = ?";
+
         try (Connection c = DBConnection.getConnection();
-                PreparedStatement ps1 = c.prepareStatement(sqlPlanned);
-                PreparedStatement ps2 = c.prepareStatement(sqlActual)) {
+                PreparedStatement psPlanned = c.prepareStatement(sqlPlanned);
+                PreparedStatement psActual = c.prepareStatement(sqlActual)) {
 
-            ps1.setInt(1, instanceId);
-            ps2.setInt(1, instanceId);
-            double planned = 0.0, actual = 0.0;
-            try (ResultSet r1 = ps1.executeQuery()) {
-                if (r1.next())
-                    planned = r1.getDouble("planned");
+            psPlanned.setInt(1, instanceId);
+            psActual.setInt(1, instanceId);
+
+            double plannedHours = 0;
+            double actualHours = 0;
+
+            // ---- read planned ----
+            try (ResultSet rs = psPlanned.executeQuery()) {
+                if (rs.next()) {
+                    plannedHours = rs.getDouble("planned_hours");
+                }
             }
-            try (ResultSet r2 = ps2.executeQuery()) {
-                if (r2.next())
-                    actual = r2.getDouble("actual");
+
+            // ---- read actual ----
+            try (ResultSet rs = psActual.executeQuery()) {
+                if (rs.next()) {
+                    actualHours = rs.getDouble("actual_hours");
+                }
             }
 
-            double plannedKsek = (planned * AVG_SALARY_PER_HOUR) / 1000.0;
-            double actualKsek = (actual * AVG_SALARY_PER_HOUR) / 1000.0;
+            // ---- cost ----
+            double plannedKsek = (plannedHours * AVG_SALARY_PER_HOUR) / 1000.0;
+            double actualKsek = computeActualCostFromSalary(c, instanceId);
 
-            // get basic instance info
-            String infoSql = "SELECT cl.course_code, ci.period, ci.year FROM CourseInstance ci JOIN CourseLayout cl ON ci.layout_id = cl.layout_id WHERE ci.instance_id = ?";
-            try (PreparedStatement ps3 = c.prepareStatement(infoSql)) {
-                ps3.setInt(1, instanceId);
-                try (ResultSet r3 = ps3.executeQuery()) {
-                    if (r3.next()) {
-                        String courseCode = r3.getString(1);
-                        String period = r3.getString(2);
-                        int year = r3.getInt(3);
-                        return new TeachingCost(instanceId, courseCode, period, year, planned, actual, plannedKsek,
+            // ---- basic instance info ----
+            String infoSql = "SELECT cl.course_code, ci.period, ci.year " +
+                    "FROM CourseInstance ci " +
+                    "JOIN CourseLayout cl ON ci.layout_id = cl.layout_id " +
+                    "WHERE ci.instance_id = ?";
+
+            try (PreparedStatement psInfo = c.prepareStatement(infoSql)) {
+                psInfo.setInt(1, instanceId);
+                try (ResultSet rs = psInfo.executeQuery()) {
+                    if (rs.next()) {
+                        return new TeachingCost(
+                                instanceId,
+                                rs.getString("course_code"),
+                                rs.getString("period"),
+                                rs.getInt("year"),
+                                plannedHours,
+                                actualHours,
+                                plannedKsek,
                                 actualKsek);
                     }
                 }
@@ -49,6 +87,27 @@ public class TeachingCostDAO {
         } catch (Exception e) {
             System.out.println("TeachingCost error: " + e.getMessage());
         }
+
         return null;
+    }
+
+    // ===== ACTUAL COST BASED ON REAL SALARY =====
+    private double computeActualCostFromSalary(Connection c, int instanceId) throws Exception {
+
+        String sql = "SELECT COALESCE(SUM(a.allocated_hours * at.factor * e.salary / 160.0), 0) AS cost " +
+                "FROM Allocation a " +
+                "JOIN ActivityType at ON a.activity_id = at.activity_id " +
+                "JOIN Employee e ON a.emp_id = e.emp_id " +
+                "WHERE a.instance_id = ?";
+
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, instanceId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getDouble("cost") / 1000.0; // → KSEK
+                }
+            }
+        }
+        return 0.0;
     }
 }

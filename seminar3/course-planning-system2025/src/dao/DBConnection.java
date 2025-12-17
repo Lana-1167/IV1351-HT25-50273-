@@ -6,7 +6,7 @@ import java.sql.Connection;
 public class DBConnection {
     private static final String URL = "jdbc:postgresql://localhost:5432/teaching2025";
     private static final String USER = "postgres";
-    private static final String PASSWORD = "lana_lana67"; // change if different
+    private static final String PASSWORD = "lana_lana67"; 
 
     public static Connection getConnection() throws java.sql.SQLException {
         try {
@@ -17,3 +17,4 @@ public class DBConnection {
         return java.sql.DriverManager.getConnection(URL, USER, PASSWORD);
     }
 }
+

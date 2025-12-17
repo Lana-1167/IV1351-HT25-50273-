@@ -1,6 +1,10 @@
 package dao;
 
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+import model.ExerciseAllocationInfo;
 
 public class AllocationDAO {
 
@@ -63,4 +67,74 @@ public class AllocationDAO {
         }
         return 0.0;
     }
+
+    public ResultSet getAllocationsForTeacher(Connection c, int empId) throws SQLException {
+        String sql = "SELECT cl.course_code, ci.instance_id, ci.period, ci.year, " +
+                "at.activity_name, a.allocated_hours " +
+                "FROM Allocation a " +
+                "JOIN CourseInstance ci ON a.instance_id = ci.instance_id " +
+                "JOIN CourseLayout cl ON ci.layout_id = cl.layout_id " +
+                "JOIN ActivityType at ON a.activity_id = at.activity_id " +
+                "WHERE a.emp_id = ? " +
+                "ORDER BY ci.year, ci.period";
+        PreparedStatement ps = c.prepareStatement(sql);
+        ps.setInt(1, empId);
+        return ps.executeQuery();
+    }
+
+    public List<ExerciseAllocationInfo> getExerciseAllocationsForTeacher(int empId) {
+
+        List<ExerciseAllocationInfo> list = new ArrayList<>();
+
+        String sql = "SELECT e.emp_id, e.first_name, e.last_name, " +
+                "       cl.course_code, ci.instance_id, ci.year, ci.period, " +
+                "       a.allocated_hours " +
+                "FROM Allocation a " +
+                "JOIN Employee e ON a.emp_id = e.emp_id " +
+                "JOIN CourseInstance ci ON a.instance_id = ci.instance_id " +
+                "JOIN CourseLayout cl ON ci.layout_id = cl.layout_id " +
+                "JOIN ActivityType at ON a.activity_id = at.activity_id " +
+                "WHERE at.activity_name = 'Exercise' AND e.emp_id = ? " +
+                "ORDER BY ci.year, ci.period";
+
+        try (Connection c = DBConnection.getConnection();
+                PreparedStatement ps = c.prepareStatement(sql)) {
+
+            ps.setInt(1, empId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(new ExerciseAllocationInfo(
+                            rs.getInt("emp_id"),
+                            rs.getString("first_name") + " " + rs.getString("last_name"),
+                            rs.getString("course_code"),
+                            rs.getInt("instance_id"),
+                            rs.getInt("year"),
+                            rs.getString("period"),
+                            rs.getDouble("allocated_hours")));
+                }
+            }
+
+        } catch (Exception e) {
+            System.out.println("Exercise allocation query error: " + e.getMessage());
+        }
+
+        return list;
+    }
+
+    public boolean hasAnyAllocationForInstance(
+            Connection c, int empId, int instanceId) throws Exception {
+
+        String sql = "SELECT 1 FROM Allocation " +
+                "WHERE emp_id = ? AND instance_id = ?";
+
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, empId);
+            ps.setInt(2, instanceId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
 }
